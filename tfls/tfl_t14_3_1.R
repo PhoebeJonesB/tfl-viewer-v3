@@ -21,7 +21,60 @@ tfl_metadata <- list(
   name        = "Table 14.3.1 \u2013 Adverse Events by SOC and PT",
   type        = "Table",
   datasets    = c("adsl", "adae"),
-  description = "Subjects with AEs by MedDRA SOC and Preferred Term (Safety population, sorted by descending frequency)."
+  description = "Subjects with AEs by MedDRA SOC and Preferred Term (Safety population, sorted by descending frequency).",
+
+  # -- ARS extension fields (v3) -----------------------------------------------
+  display = list(
+    title     = "Table 14.3.1",
+    subtitle  = "Adverse Events by System Organ Class and Preferred Term",
+    footnotes = c(
+      "MedDRA = Medical Dictionary for Regulatory Activities; SOC = System Organ Class; PT = Preferred Term.",
+      "A subject is counted once per PT per treatment arm.",
+      "Sorted by descending frequency of SOC, then PT, based on total column."
+    )
+  ),
+
+  analysis_sets = list(
+    list(
+      id         = "AS-SAF",
+      label      = "Safety Set",
+      dataset    = "adsl",
+      variable   = "SAFFL",
+      comparator = "EQ",
+      value      = "Y"
+    )
+  ),
+
+  data_subsets = list(
+    list(
+      id         = "DS-AE-SAFFL",
+      label      = "Safety Set AEs (ADAE)",
+      dataset    = "adae",
+      variable   = "SAFFL",
+      comparator = "EQ",
+      value      = "Y"
+    )
+  ),
+
+  analyses = list(
+    list(
+      id              = "AN-t14_3_1-01",
+      label           = "AE frequency by SOC and PT, by treatment arm",
+      analysis_set_id = "AS-SAF",
+      dataset         = "adae",
+      variable        = "AEDECOD",
+      grouping_var    = "TRT01A",
+      method_id       = "METH-freq-pct"
+    )
+  ),
+
+  methods = list(
+    list(
+      id         = "METH-freq-pct",
+      label      = "Frequency and Percentage",
+      operations = c("count", "percent")
+    )
+  )
 )
 
 

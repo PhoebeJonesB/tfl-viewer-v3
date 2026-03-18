@@ -21,10 +21,12 @@ server <- function(input, output, session) {
   # ---------------------------------------------------------------------------
 
   rv <- reactiveValues(
-    tfl_list     = tfl_list,      # from global.R (initial load)
-    registry     = tfl_registry,  # from global.R (initial load)
-    rerun_output = NULL,          # result of manual "Re-run TFL" button
-    rerun_msg    = NULL           # status message for the re-run button
+    tfl_list       = tfl_list,      # from global.R (initial load)
+    registry       = tfl_registry,  # from global.R (initial load)
+    rerun_output   = NULL,          # result of manual "Re-run TFL" button
+    rerun_msg      = NULL,          # status message for the re-run button
+    variant_msg    = NULL,          # status message for variant creation (v3)
+    review_trigger = 0L             # incremented to refresh review display
   )
 
   # Populate the TFL selector dropdown once registry is ready
@@ -96,10 +98,31 @@ server <- function(input, output, session) {
   # Registry DT table (single-row selection)
   output$registry_table <- renderDT({
     req(rv$registry)
-    disp <- rv$registry[, c("name", "type", "datasets",
-                             "description", "status", "run_time_secs")]
-    colnames(disp) <- c("TFL Name", "Type", "Datasets Used",
-                         "Description", "Status", "Run (s)")
+    rv$review_trigger   # re-render when reviews change
+
+    reg <- rv$registry
+
+    # Add review status column
+    review_status <- vapply(reg$tfl_key, function(key) {
+      status <- get_tfl_review_status(key, REVIEWER_ROLES, REVIEWS_DIR)
+      n_reviewed <- sum(status)
+      n_total    <- length(status)
+      if (n_reviewed == 0) return("\u2014")
+      paste0(n_reviewed, "/", n_total, " reviewed")
+    }, character(1))
+
+    disp <- data.frame(
+      `TFL Name`      = reg$name,
+      Type             = reg$type,
+      `Datasets Used`  = reg$datasets,
+      Description      = reg$description,
+      Status           = reg$status,
+      `Run (s)`        = reg$run_time_secs,
+      `Review Status`  = review_status,
+      stringsAsFactors = FALSE,
+      check.names      = FALSE
+    )
+
     datatable(
       disp,
       selection = "single",
@@ -107,7 +130,7 @@ server <- function(input, output, session) {
       options   = list(
         pageLength = 20,
         dom        = "frtip",
-        columnDefs = list(list(width = "35%", targets = 0))
+        columnDefs = list(list(width = "30%", targets = 0))
       )
     )
   })
@@ -723,7 +746,630 @@ server <- function(input, output, session) {
 
 
   # ---------------------------------------------------------------------------
-  # 16. ABOUT TAB
+  # 16-A. SAVE AS VARIANT BUTTON (v3)
+  # ---------------------------------------------------------------------------
+  # Show only when a TFL is selected and at least one flag is active
+
+  output$save_variant_ui <- renderUI({
+    tfl    <- current_tfl()
+    flags  <- active_pop_flags()
+    n_active <- sum(sapply(flags, function(v) !is.null(v) && v != "All"))
+    if (is.null(tfl) || !tfl$success || n_active == 0L) return(NULL)
+
+    tagList(
+      tags$label(class = "fw-semibold text-muted small text-uppercase mb-1",
+                 icon("code-fork"), " Variants"),
+      actionButton(
+        "btn_save_variant",
+        label = tagList(icon("code-fork"), " Save as Variant"),
+        class = "btn btn-outline-secondary btn-sm w-100"
+      ),
+      tags$div(class = "text-muted small mt-1",
+               "Bake current filters into a new TFL variant.")
+    )
+  })
+
+  # Open the Variant Creator modal
+  observeEvent(input$btn_save_variant, {
+    tfl    <- isolate(current_tfl())
+    flags  <- isolate(active_pop_flags())
+    req(tfl, tfl$success)
+
+    base_id <- tfl$metadata$id
+    suf     <- next_variant_suffix(base_id, TFL_DIR)
+
+    # Build filter checkbox choices from active flags
+    active_flags <- Filter(function(v) !is.null(v) && v != "All", flags)
+    filter_choices <- setNames(
+      names(active_flags),
+      paste0(names(active_flags), " = ", unlist(active_flags))
+    )
+
+    showModal(modalDialog(
+      title = tagList(icon("code-fork"), " Save as Variant"),
+      size  = "m",
+      easyClose = TRUE,
+
+      tags$p(
+        class = "text-muted small mb-3",
+        tags$strong("Base TFL:"), tfl$metadata$name
+      ),
+
+      fluidRow(
+        column(6,
+          textInput("variant_suffix", "Variant suffix",
+                    value = suf, width = "100%",
+                    placeholder = "a, b, c…")
+        ),
+        column(6,
+          textInput("variant_label", "Variant label",
+                    value = "", width = "100%",
+                    placeholder = "e.g. Elderly Subgroup")
+        )
+      ),
+
+      textAreaInput("variant_desc", "Description",
+                    value = tfl$metadata$description,
+                    width = "100%", rows = 2),
+
+      checkboxGroupInput(
+        "variant_baked_filters",
+        "Filters to bake into the variant:",
+        choices  = filter_choices,
+        selected = names(filter_choices)
+      ),
+
+      tags$div(
+        class = "alert alert-warning small mt-2 mb-0",
+        icon("triangle-exclamation"), " ",
+        "This writes a new .R file to the ", tags$code("tfls/"), " directory.",
+        " Intended for development environments only."
+      ),
+
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("btn_confirm_variant", "Create Variant",
+                     class = "btn btn-primary", icon = icon("check"))
+      )
+    ))
+  })
+
+  # Confirm: generate the variant script + ARS JSON
+  observeEvent(input$btn_confirm_variant, {
+    tfl    <- isolate(current_tfl())
+    flags  <- isolate(active_pop_flags())
+    req(tfl, tfl$success)
+
+    suffix <- trimws(isolate(input$variant_suffix))
+    label  <- trimws(isolate(input$variant_label))
+    desc   <- trimws(isolate(input$variant_desc))
+    baked  <- isolate(input$variant_baked_filters)
+
+    if (nchar(suffix) == 0L) {
+      showNotification("Please enter a variant suffix.", type = "error")
+      return()
+    }
+    if (nchar(label) == 0L) {
+      showNotification("Please enter a variant label.", type = "error")
+      return()
+    }
+
+    base_id    <- tfl$metadata$id
+    variant_id <- paste0(base_id, "_", suffix)
+
+    # Build the baked filter list (only selected flags)
+    active_flags  <- Filter(function(v) !is.null(v) && v != "All", flags)
+    baked_filters <- active_flags[names(active_flags) %in% baked]
+
+    # Guard: don't overwrite existing variant
+    variant_path <- file.path(TFL_DIR, paste0("tfl_", variant_id, ".R"))
+    if (file.exists(variant_path)) {
+      showNotification(
+        paste0("Variant already exists: tfl_", variant_id, ".R — choose a different suffix."),
+        type = "error", duration = 8
+      )
+      return()
+    }
+
+    tryCatch({
+      # 1. Write the variant .R script
+      generate_variant_script(
+        base_result   = tfl,
+        variant_id    = variant_id,
+        variant_label = label,
+        variant_desc  = desc,
+        baked_filters = baked_filters,
+        tfl_dir       = TFL_DIR
+      )
+
+      # 2. Write the ARS JSON for the variant
+      ars_obj <- build_ars_json(
+        tfl_result     = tfl,
+        active_filters = baked_filters,
+        study_id       = STUDY_ID
+      )
+      # Patch the id in the ARS JSON to reflect the variant
+      ars_obj$reportingEvent$outputs[[1]]$id   <- paste0("OUT-", variant_id)
+      ars_obj$reportingEvent$userSession$baseTflId <- variant_id
+      write_ars_json(ars_obj, output_dir = ARS_OUTPUT_DIR, tfl_id = variant_id)
+
+      removeModal()
+      showNotification(
+        tagList(
+          icon("circle-check"), " Variant created: ",
+          tags$strong(paste0("tfl_", variant_id, ".R")),
+          " — click Refresh to load it."
+        ),
+        type = "message", duration = 8
+      )
+
+    }, error = function(e) {
+      showNotification(paste("Error creating variant:", e$message),
+                       type = "error", duration = 10)
+    })
+  })
+
+
+  # ---------------------------------------------------------------------------
+  # 16-B. ARS JSON EXPORT (v3)
+  # ---------------------------------------------------------------------------
+
+  output$btn_export_ars <- downloadHandler(
+    filename = function() {
+      tfl_id <- current_tfl()$metadata$id %||% "tfl"
+      paste0("ars_", tfl_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".json")
+    },
+    content = function(file) {
+      tfl    <- isolate(current_tfl())
+      flags  <- isolate(active_pop_flags())
+      req(tfl)
+
+      ars_obj <- build_ars_json(
+        tfl_result     = tfl,
+        active_filters = flags,
+        study_id       = STUDY_ID
+      )
+      writeLines(ars_to_json_string(ars_obj), file)
+    }
+  )
+
+
+  # ---------------------------------------------------------------------------
+  # 17. SOURCE DATA TAB (filtered dataset behind the TFL)
+  # ---------------------------------------------------------------------------
+
+  output$source_data_info_ui <- renderUI({
+    tfl <- current_tfl()
+    req(tfl)
+    ad <- tfl$analysis_data
+
+    if (is.null(ad) || !is.data.frame(ad)) {
+      return(tags$div(
+        class = "alert alert-info small",
+        icon("circle-info"), " ",
+        "This TFL script does not expose an ", tags$code("analysis_data"),
+        " object. To enable this view, ensure the TFL script assigns the ",
+        "filtered dataset to a variable named ", tags$code("analysis_data"), "."
+      ))
+    }
+
+    n_subj <- if ("USUBJID" %in% names(ad)) dplyr::n_distinct(ad$USUBJID) else NA
+    tags$div(
+      class = "d-flex gap-3 align-items-center small text-muted mb-1",
+      tags$strong("analysis_data"),
+      tags$span(format(nrow(ad), big.mark = ","), " rows"),
+      tags$span(ncol(ad), " columns"),
+      if (!is.na(n_subj)) tags$span(n_subj, " subjects")
+    )
+  })
+
+  output$source_data_table <- renderDT({
+    tfl <- current_tfl()
+    req(tfl, is.data.frame(tfl$analysis_data))
+    datatable(
+      tfl$analysis_data,
+      rownames   = FALSE,
+      extensions = c("Buttons", "Scroller"),
+      options    = list(
+        dom        = "Bfrtip",
+        buttons    = list("excel", "csv"),
+        scrollX    = TRUE,
+        scrollY    = "450px",
+        scroller   = TRUE,
+        pageLength = 25
+      ),
+      filter = "top"
+    )
+  })
+
+
+  # ---------------------------------------------------------------------------
+  # 18. REVIEWS & AUDIT TRAIL
+  # ---------------------------------------------------------------------------
+
+  # Load reviews for the currently selected TFL
+  tfl_reviews <- reactive({
+    rv$review_trigger   # dependency: re-read on submit
+    key <- input$sel_tfl
+    req(key)
+    load_reviews(key, REVIEWS_DIR)
+  })
+
+  # --- 18a. Audit status bar ---
+  output$audit_status_ui <- renderUI({
+    revs  <- tfl_reviews()
+    roles_seen <- unique(vapply(revs, function(r) r$role %||% "", character(1)))
+
+    badges <- lapply(REVIEWER_ROLES, function(role) {
+      reviewed <- role %in% roles_seen
+      # Find reviewer name for tooltip
+      reviewer_name <- ""
+      if (reviewed) {
+        for (r in revs) {
+          if (!is.null(r$role) && r$role == role) {
+            reviewer_name <- r$reviewer %||% ""
+            break
+          }
+        }
+      }
+
+      if (reviewed) {
+        tags$span(
+          class = "badge bg-success me-1 mb-1",
+          title = paste0("Reviewed by: ", reviewer_name),
+          icon("circle-check"), " ", role
+        )
+      } else {
+        tags$span(
+          class = "badge bg-light text-muted border me-1 mb-1",
+          title = "Not yet reviewed",
+          icon("circle-xmark"), " ", role
+        )
+      }
+    })
+
+    tags$div(class = "d-flex flex-wrap", badges)
+  })
+
+  # --- 18b. Comment views: threaded + per-reviewer ---
+
+  # Track which view is active: "threads" (default) or "reviewers"
+  review_view_mode <- reactiveVal("threads")
+
+  observeEvent(input$btn_view_threads, {
+    review_view_mode("threads")
+  })
+  observeEvent(input$btn_view_reviewers, {
+    review_view_mode("reviewers")
+  })
+
+  # Role badge colour mapping (used in comment display)
+  role_colour <- function(role) {
+    switch(role,
+      "Statistics Lead"          = "bg-primary",
+      "Safety Lead"              = "bg-danger",
+      "Medical Lead"             = "bg-info",
+      "Programming Lead"         = "bg-warning text-dark",
+      "Clinical Operations Lead" = "bg-secondary",
+      "Trial Programmer"         = "bg-success",
+      "bg-dark"
+    )
+  }
+
+  output$reviews_list_ui <- renderUI({
+    if (review_view_mode() != "threads") return(NULL)
+
+    revs <- tfl_reviews()
+
+    if (length(revs) == 0) {
+      return(tags$div(
+        class = "text-muted small fst-italic py-3",
+        icon("circle-info"),
+        " No comments yet. Be the first to leave a review."
+      ))
+    }
+
+    # Separate top-level comments and responses
+    top_level <- Filter(function(r) is_top_level_comment(r$parent_id), revs)
+    responses <- Filter(function(r) !is_top_level_comment(r$parent_id), revs)
+
+    # Build a lookup of parent_id -> list of responses
+    resp_by_parent <- list()
+    for (r in responses) {
+      pid <- r$parent_id
+      resp_by_parent[[pid]] <- c(resp_by_parent[[pid]], list(r))
+    }
+
+    # Render a single comment card
+    render_comment <- function(cmt, is_reply = FALSE) {
+      ts_display <- if (!is.null(cmt$timestamp))
+        format(as.POSIXct(cmt$timestamp, format = "%Y-%m-%dT%H:%M:%S"), "%Y-%m-%d %H:%M")
+      else ""
+
+      card_class <- if (is_reply)
+        "ms-4 mb-2 border-start border-3 border-primary"
+      else
+        "mb-2"
+
+      # Reply button uses Shiny.setInputValue with event priority so it
+      # always fires, even if the same button is clicked twice in a row
+      reply_btn <- if (!is_reply) {
+        cmt_id_js <- gsub("'", "\\\\'", cmt$id)
+        tags$button(
+          type    = "button",
+          class   = "btn btn-outline-secondary btn-sm py-0 px-2",
+          style   = "font-size: 0.7rem;",
+          onclick = sprintf(
+            "Shiny.setInputValue('reply_to', '%s', {priority: 'event'})",
+            cmt_id_js
+          ),
+          icon("reply"), " Reply"
+        )
+      }
+
+      tags$div(
+        class = paste("card", card_class),
+        tags$div(
+          class = "card-body py-2 px-3",
+          tags$div(
+            class = "d-flex justify-content-between align-items-center mb-1",
+            tags$div(
+              tags$span(class = paste("badge", role_colour(cmt$role %||% "")),
+                        cmt$role),
+              tags$strong(class = "ms-2 small", cmt$reviewer)
+            ),
+            tags$small(class = "text-muted", ts_display)
+          ),
+          tags$p(class = "mb-1 small", cmt$text),
+          reply_btn
+        )
+      )
+    }
+
+    # Build the threaded UI
+    comment_blocks <- lapply(top_level, function(cmt) {
+      child_replies <- resp_by_parent[[cmt$id]] %||% list()
+      tagList(
+        render_comment(cmt, is_reply = FALSE),
+        lapply(child_replies, function(r) render_comment(r, is_reply = TRUE))
+      )
+    })
+
+    tags$div(
+      style = "max-height: 400px; overflow-y: auto;",
+      comment_blocks
+    )
+  })
+
+  # --- 18b-2. Per-reviewer summary view ---
+  output$reviewer_summary_ui <- renderUI({
+    if (review_view_mode() != "reviewers") return(NULL)
+
+    revs <- tfl_reviews()
+    if (length(revs) == 0) return(NULL)
+
+    # Group comments by reviewer (role + name)
+    reviewer_map <- list()
+    for (r in revs) {
+      key <- paste0(r$role %||% "Unknown", " | ", r$reviewer %||% "Unknown")
+      reviewer_map[[key]] <- c(reviewer_map[[key]], list(r))
+    }
+
+    reviewer_cards <- lapply(names(reviewer_map), function(rkey) {
+      cmts <- reviewer_map[[rkey]]
+      first <- cmts[[1]]
+      n_comments  <- sum(vapply(cmts, function(c)
+        is_top_level_comment(c$parent_id), logical(1)))
+      n_responses <- length(cmts) - n_comments
+
+      # Most recent timestamp
+      timestamps <- vapply(cmts, function(c) c$timestamp %||% "", character(1))
+      latest <- max(timestamps)
+      latest_display <- format(
+        as.POSIXct(latest, format = "%Y-%m-%dT%H:%M:%S"),
+        "%Y-%m-%d %H:%M"
+      )
+
+      tags$div(
+        class = "card mb-2",
+        tags$div(
+          class = "card-body py-2 px-3",
+          tags$div(
+            class = "d-flex justify-content-between align-items-center",
+            tags$div(
+              tags$span(class = paste("badge", role_colour(first$role %||% "")),
+                        first$role),
+              tags$strong(class = "ms-2 small", first$reviewer)
+            ),
+            tags$small(class = "text-muted", "Last activity: ", latest_display)
+          ),
+          tags$div(
+            class = "mt-1 small text-muted",
+            tags$span(class = "me-3",
+                      icon("comment"), " ", n_comments, " comment(s)"),
+            tags$span(icon("reply"), " ", n_responses, " response(s)")
+          )
+        )
+      )
+    })
+
+    tags$div(reviewer_cards)
+  })
+
+  # --- 18c. Reply modal (triggered via Shiny.setInputValue from JS) ---
+  # reactiveVal to hold the parent comment being replied to
+  reply_parent <- reactiveVal(NULL)
+
+  observeEvent(input$reply_to, {
+    parent_id <- input$reply_to
+    req(parent_id)
+
+    # Find the parent comment object
+    revs <- isolate(tfl_reviews())
+    parent_cmt <- NULL
+    for (r in revs) {
+      if (!is.null(r$id) && r$id == parent_id) {
+        parent_cmt <- r
+        break
+      }
+    }
+    req(parent_cmt)
+
+    reply_parent(parent_id)
+
+    # Pre-fill from main reviewer identity if available
+    prefill_name <- isolate(input$reviewer_name %||% "")
+    prefill_role <- isolate(input$reviewer_role %||% "")
+
+    showModal(modalDialog(
+      title = tagList(icon("reply"), " Reply to ", parent_cmt$reviewer),
+      size  = "m",
+      easyClose = TRUE,
+
+      tags$div(
+        class = "card bg-light mb-3",
+        tags$div(
+          class = "card-body py-2 px-3 small",
+          tags$div(
+            tags$span(class = paste("badge", role_colour(parent_cmt$role %||% "")),
+                      parent_cmt$role),
+            tags$strong(class = "ms-2", parent_cmt$reviewer)
+          ),
+          tags$p(class = "mb-0 mt-1", parent_cmt$text)
+        )
+      ),
+
+      # Responder identity fields
+      tags$h6(class = "text-muted small fw-semibold mt-2",
+              icon("user"), " Responder Identity"),
+      layout_column_wrap(
+        width = 1 / 2,
+        textInput("reply_name", "Your Name", value = prefill_name,
+                  placeholder = "e.g. Jane Smith", width = "100%"),
+        selectInput("reply_role", "Your Role", width = "100%",
+                    selected = prefill_role,
+                    choices = c("Select role..." = "", REVIEWER_ROLES))
+      ),
+
+      textAreaInput("reply_text", "Your Response",
+                    value = "", placeholder = "Write your response...",
+                    width = "100%", rows = 3),
+
+      # JS to ensure the text area gets focus after modal animation
+      tags$script(HTML(
+        "setTimeout(function() { $('#reply_text').focus(); }, 500);"
+      )),
+
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("btn_submit_reply", "Submit Reply",
+                     class = "btn btn-primary", icon = icon("paper-plane"))
+      )
+    ))
+  })
+
+  # --- 18d. Submit new top-level comment ---
+  observeEvent(input$btn_submit_review, {
+    reviewer <- trimws(input$reviewer_name %||% "")
+    role     <- input$reviewer_role %||% ""
+    text     <- trimws(input$review_text %||% "")
+    key      <- input$sel_tfl
+
+    if (nchar(reviewer) == 0) {
+      showNotification("Please enter your name in the Reviewer Identity section.", type = "error")
+      return()
+    }
+    if (nchar(role) == 0 || role == "Select role...") {
+      showNotification("Please select your role.", type = "error")
+      return()
+    }
+    if (nchar(text) == 0) {
+      showNotification("Please write a comment before submitting.", type = "error")
+      return()
+    }
+
+    comment <- list(
+      id        = build_review_id(),
+      tfl_key   = key,
+      reviewer  = reviewer,
+      role      = role,
+      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
+      text      = text,
+      parent_id = ""
+    )
+
+    save_review(key, comment, REVIEWS_DIR)
+
+    # Clear the text input and refresh
+    updateTextAreaInput(session, "review_text", value = "")
+    rv$review_trigger <- isolate(rv$review_trigger) + 1L
+
+    showNotification(
+      tagList(icon("circle-check"), " Comment saved."),
+      type = "message", duration = 3
+    )
+  })
+
+  # --- 18e. Submit reply (reads from modal's own identity fields) ---
+  observeEvent(input$btn_submit_reply, {
+    reviewer  <- trimws(input$reply_name %||% "")
+    role      <- input$reply_role %||% ""
+    text      <- trimws(input$reply_text %||% "")
+    parent_id <- reply_parent() %||% ""
+    key       <- input$sel_tfl
+
+    if (nchar(reviewer) == 0) {
+      showNotification("Please enter your name in the Responder Identity fields.", type = "error")
+      return()
+    }
+    if (nchar(role) == 0 || role == "Select role...") {
+      showNotification("Please select your role.", type = "error")
+      return()
+    }
+    if (nchar(text) == 0) {
+      showNotification("Please write a response.", type = "error")
+      return()
+    }
+
+    comment <- list(
+      id        = build_review_id(),
+      tfl_key   = key,
+      reviewer  = reviewer,
+      role      = role,
+      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
+      text      = text,
+      parent_id = parent_id
+    )
+
+    save_review(key, comment, REVIEWS_DIR)
+
+    removeModal()
+    rv$review_trigger <- isolate(rv$review_trigger) + 1L
+
+    showNotification(
+      tagList(icon("circle-check"), " Reply saved."),
+      type = "message", duration = 3
+    )
+  })
+
+  # --- 18f. Excel audit export ---
+  output$dl_review_audit <- downloadHandler(
+    filename = function() {
+      paste0("review_audit_", format(Sys.Date(), "%Y-%m-%d"), ".xlsx")
+    },
+    content = function(file) {
+      compile_reviews_excel(
+        tfl_registry  = rv$registry,
+        reviewer_roles = REVIEWER_ROLES,
+        reviews_dir    = REVIEWS_DIR,
+        output_file    = file
+      )
+    }
+  )
+
+
+  # ---------------------------------------------------------------------------
+  # 19. ABOUT TAB
   # ---------------------------------------------------------------------------
 
   output$about_study_id <- renderText(STUDY_ID)

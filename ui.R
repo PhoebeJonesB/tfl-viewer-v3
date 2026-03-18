@@ -26,7 +26,7 @@ ui <- page_navbar(
     tags$small(
       class = "text-muted ms-2",
       style = "font-size:0.75rem; font-weight:400;",
-      "v2.0"
+      "v3.1"
     )
   ),
 
@@ -124,6 +124,11 @@ ui <- page_navbar(
 
         hr(class = "my-2"),
 
+        # --- Save as Variant (v3) ---
+        uiOutput("save_variant_ui"),
+
+        hr(class = "my-2"),
+
         # --- Downloads ---
         tags$label(class = "fw-semibold text-muted small text-uppercase mb-1",
                    "Export"),
@@ -160,7 +165,29 @@ ui <- page_navbar(
           )
         ),
 
-        # --- Tab 2: Dataset Explorer -----------------------------------------
+        # --- Tab 2: Source Data (filtered dataset behind the TFL) ---------------
+        nav_panel(
+          title = tagList(icon("table-cells"), " Source Data"),
+          value = "vtab_source_data",
+
+          card_body(
+            class = "p-3",
+            tags$h6(
+              class = "text-uppercase text-muted small fw-semibold",
+              icon("filter"), " Filtered Dataset Used to Generate This TFL"
+            ),
+            tags$p(
+              class = "text-muted small",
+              "This table shows the analysis-ready dataset (",
+              tags$code("analysis_data"),
+              ") that was filtered and used by the TFL script to produce the output."
+            ),
+            uiOutput("source_data_info_ui"),
+            tags$div(class = "mt-2", DTOutput("source_data_table"))
+          )
+        ),
+
+        # --- Tab 3: Dataset Explorer -----------------------------------------
         nav_panel(
           title = tagList(icon("database"), " Dataset Explorer"),
           value = "vtab_explorer",
@@ -330,7 +357,128 @@ ui <- page_navbar(
               class = "text-muted small ms-2",
               "Rebuilds the Output tab using only subjects that pass your current filters."
             ),
-            tags$div(class = "mt-2", uiOutput("rerun_status_ui"))
+            tags$div(class = "mt-2", uiOutput("rerun_status_ui")),
+
+            tags$hr(class = "my-3"),
+
+            # ARS JSON Export (v3)
+            tags$h6(
+              class = "text-uppercase text-muted small fw-semibold",
+              icon("file-code"), " ARS JSON Export"
+            ),
+            tags$p(
+              class = "text-muted small",
+              "Downloads a CDISC ARS-compliant JSON file capturing this TFL and all active filter selections."
+            ),
+            downloadButton(
+              "btn_export_ars",
+              label = tagList(icon("download"), " Export ARS JSON"),
+              class = "btn btn-outline-primary btn-sm"
+            ),
+            tags$div(
+              class = "text-muted small mt-1",
+              tags$a(
+                href   = "https://www.cdisc.org/standards/foundational/ars",
+                target = "_blank",
+                "About CDISC ARS \u2197"
+              )
+            )
+          )
+        ),
+
+        # --- Tab 7: Reviews & Audit Trail ------------------------------------
+        nav_panel(
+          title = tagList(icon("comments"), " Reviews"),
+          value = "vtab_reviews",
+
+          card_body(
+            class = "p-3",
+
+            # -- Reviewer identity --
+            tags$h6(
+              class = "text-uppercase text-muted small fw-semibold",
+              icon("user-shield"), " Reviewer Identity"
+            ),
+            tags$p(
+              class = "text-muted small",
+              "Set your name and role once per session. All comments you submit will be tagged with this identity."
+            ),
+            layout_column_wrap(
+              width = 1 / 2,
+              textInput("reviewer_name", "Your Name", value = "", width = "100%",
+                        placeholder = "e.g. Jane Smith"),
+              selectInput("reviewer_role", "Your Role", width = "100%",
+                          choices = c("Select role..." = "", REVIEWER_ROLES))
+            ),
+
+            tags$hr(class = "my-3"),
+
+            # -- Audit status bar --
+            tags$h6(
+              class = "text-uppercase text-muted small fw-semibold",
+              icon("clipboard-check"), " Audit Status"
+            ),
+            tags$p(
+              class = "text-muted small",
+              "Shows which reviewer roles have commented on this TFL."
+            ),
+            uiOutput("audit_status_ui"),
+
+            tags$hr(class = "my-3"),
+
+            # -- Existing comments --
+            tags$div(
+              class = "d-flex justify-content-between align-items-center",
+              tags$h6(
+                class = "text-uppercase text-muted small fw-semibold mb-0",
+                icon("comments"), " Comments"
+              ),
+              # Toggle between thread view and reviewer summary
+              tags$div(
+                class = "btn-group btn-group-sm",
+                actionButton("btn_view_threads", "Threads",
+                             class = "btn btn-outline-secondary btn-sm active",
+                             style = "font-size: 0.75rem; padding: 2px 8px;"),
+                actionButton("btn_view_reviewers", "By Reviewer",
+                             class = "btn btn-outline-secondary btn-sm",
+                             style = "font-size: 0.75rem; padding: 2px 8px;")
+              )
+            ),
+            tags$div(class = "mt-2", uiOutput("reviews_list_ui")),
+            uiOutput("reviewer_summary_ui"),
+
+            tags$hr(class = "my-3"),
+
+            # -- New comment form --
+            tags$h6(
+              class = "text-uppercase text-muted small fw-semibold",
+              icon("pen"), " Add Comment"
+            ),
+            textAreaInput("review_text", label = NULL,
+                          placeholder = "Write your review comment here...",
+                          width = "100%", rows = 3),
+            actionButton(
+              "btn_submit_review",
+              label = tagList(icon("paper-plane"), " Submit Comment"),
+              class = "btn btn-primary btn-sm"
+            ),
+
+            tags$hr(class = "my-3"),
+
+            # -- Excel export --
+            tags$h6(
+              class = "text-uppercase text-muted small fw-semibold",
+              icon("file-excel"), " Review Audit Export"
+            ),
+            tags$p(
+              class = "text-muted small",
+              "Download an Excel workbook with all review comments across every TFL plus an audit summary."
+            ),
+            downloadButton(
+              "dl_review_audit",
+              label = tagList(icon("download"), " Download Review Audit (Excel)"),
+              class = "btn btn-outline-success btn-sm"
+            )
           )
         )
       )
@@ -361,12 +509,28 @@ ui <- page_navbar(
             tags$li("Tracks which datasets went into each TFL."),
             tags$li("Lets you explore and filter source datasets interactively."),
             tags$li("Displays the code that produced each TFL alongside a live version."),
-            tags$li("Investigation mode: unique values, patient listings, exploratory plots.")
+            tags$li("Investigation mode: unique values, patient listings, exploratory plots."),
+            tags$li(tags$strong("v3: "), "ARS-compliant metadata schema for all TFLs."),
+            tags$li(tags$strong("v3: "), "Export any TFL + active filters as a CDISC ARS JSON file."),
+            tags$li(tags$strong("v3: "), "Save filtered views as new TFL variants from the UI.")
           ),
           tags$hr(),
           tags$p(tags$strong("Study ID:"), textOutput("about_study_id", inline = TRUE)),
           tags$p(tags$strong("App Version:"), APP_VERSION),
-          tags$p(tags$strong("R Version:"), paste(R.version$major, R.version$minor, sep = "."))
+          tags$p(tags$strong("R Version:"), paste(R.version$major, R.version$minor, sep = ".")),
+          tags$hr(),
+          tags$p(
+            tags$strong("CDISC ARS Standard: "),
+            tags$a("cdisc.org/standards/foundational/ars",
+                   href = "https://www.cdisc.org/standards/foundational/ars",
+                   target = "_blank")
+          ),
+          tags$p(
+            tags$strong("ARS GitHub Spec: "),
+            tags$a("github.com/cdisc-org/analysis-results-standard",
+                   href = "https://github.com/cdisc-org/analysis-results-standard",
+                   target = "_blank")
+          )
         )
       ),
 

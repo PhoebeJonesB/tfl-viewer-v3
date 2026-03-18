@@ -20,7 +20,50 @@ tfl_metadata <- list(
   name        = "Table 14.1.1 \u2013 Subject Disposition",
   type        = "Table",
   datasets    = c("adsl"),
-  description = "Number and percentage of subjects by disposition reason and treatment arm (ITT population)."
+  description = "Number and percentage of subjects by disposition reason and treatment arm (ITT population).",
+
+  # -- ARS extension fields (v3) -----------------------------------------------
+  display = list(
+    title     = "Table 14.1.1",
+    subtitle  = "Subject Disposition",
+    footnotes = c(
+      "ITT = Intent-to-Treat.",
+      "Percentages are based on the number of subjects in the analysis set."
+    )
+  ),
+
+  analysis_sets = list(
+    list(
+      id         = "AS-ITT",
+      label      = "Intent-to-Treat",
+      dataset    = "adsl",
+      variable   = "ITTFL",
+      comparator = "EQ",
+      value      = "Y"
+    )
+  ),
+
+  data_subsets = NULL,
+
+  analyses = list(
+    list(
+      id              = "AN-t14_1_1-01",
+      label           = "Disposition reason frequency by treatment arm",
+      analysis_set_id = "AS-ITT",
+      dataset         = "adsl",
+      variable        = "DCSREAS",
+      grouping_var    = "TRT01A",
+      method_id       = "METH-freq-pct"
+    )
+  ),
+
+  methods = list(
+    list(
+      id         = "METH-freq-pct",
+      label      = "Frequency and Percentage",
+      operations = c("count", "percent")
+    )
+  )
 )
 
 

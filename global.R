@@ -15,7 +15,7 @@
 # 1. PACKAGES
 # Required packages – install any missing ones before launching the app:
 #   install.packages(c("shiny", "bslib", "DT", "dplyr", "ggplot2",
-#                       "survival", "scales", "writexl"))
+#                       "survival", "scales", "writexl", "jsonlite", "stringr"))
 # -----------------------------------------------------------------------------
 
 library(shiny)
@@ -27,6 +27,8 @@ library(survival)   # Kaplan-Meier (tfl_f14_2_1.R)
 library(scales)     # percent_format() used in KM plot
 library(writexl)    # server-side Excel export
 library(forcats)    # frequency-ordered bar charts (Investigate tab)
+library(jsonlite)   # ARS JSON serialisation (v3)
+library(stringr)    # string utilities used in generate_variant_script (v3)
 
 
 # -----------------------------------------------------------------------------
@@ -86,9 +88,25 @@ message(sprintf(
 # 5. APP-WIDE CONSTANTS
 # -----------------------------------------------------------------------------
 
-APP_TITLE   <- "Clinical TFL Viewer v2"
-APP_VERSION <- "2.0.0"
+APP_TITLE   <- "Clinical TFL Viewer v3"
+APP_VERSION <- "3.1.0"
+ARS_OUTPUT_DIR <- "ars_outputs"
+REVIEWS_DIR    <- "reviews"
 STUDY_ID    <- unique(adsl$STUDYID)[1]
+
+# Reviewer roles used in the audit trail / comment system
+REVIEWER_ROLES <- c(
+  "Statistics Lead",
+  "Safety Lead",
+  "Medical Lead",
+  "Programming Lead",
+  "Clinical Operations Lead",
+  "Trial Programmer",
+  "Other"
+)
+
+# Ensure the reviews directory exists
+dir.create(REVIEWS_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # Colour palette for treatment arms (used across app and TFL figures)
 TRT_COLOURS <- c(

@@ -21,7 +21,76 @@ tfl_metadata <- list(
   name        = "Figure 14.1.1 \u2013 Mean Change from Baseline in ALT by Visit",
   type        = "Figure",
   datasets    = c("adsl", "adlb"),
-  description = "Mean (\u00b1 SE) change from baseline in ALT (U/L) by scheduled visit and treatment arm (Safety population)."
+  description = "Mean (\u00b1 SE) change from baseline in ALT (U/L) by scheduled visit and treatment arm (Safety population).",
+
+  # -- ARS extension fields (v3) -----------------------------------------------
+  display = list(
+    title     = "Figure 14.1.1",
+    subtitle  = "Mean Change from Baseline in ALT by Scheduled Visit and Treatment",
+    footnotes = c(
+      "ALT = Alanine Aminotransferase (U/L). Error bars represent \u00b1 1 Standard Error.",
+      "Based on subjects with both a baseline and at least one post-baseline ALT value.",
+      "Safety population; ANL01FL = Y; PARAMCD = ALT."
+    )
+  ),
+
+  analysis_sets = list(
+    list(
+      id         = "AS-SAF",
+      label      = "Safety Set",
+      dataset    = "adsl",
+      variable   = "SAFFL",
+      comparator = "EQ",
+      value      = "Y"
+    ),
+    list(
+      id         = "AS-ANL01",
+      label      = "Analysis Flag 01",
+      dataset    = "adlb",
+      variable   = "ANL01FL",
+      comparator = "EQ",
+      value      = "Y"
+    )
+  ),
+
+  data_subsets = list(
+    list(
+      id         = "DS-ALT",
+      label      = "ALT parameter only",
+      dataset    = "adlb",
+      variable   = "PARAMCD",
+      comparator = "EQ",
+      value      = "ALT"
+    ),
+    list(
+      id         = "DS-POSTBASE",
+      label      = "Post-baseline visits only",
+      dataset    = "adlb",
+      variable   = "AVISITN",
+      comparator = "GT",
+      value      = "0"
+    )
+  ),
+
+  analyses = list(
+    list(
+      id              = "AN-f14_1_1-01",
+      label           = "Mean change from baseline in ALT by visit and treatment",
+      analysis_set_id = "AS-SAF",
+      dataset         = "adlb",
+      variable        = "CHG",
+      grouping_var    = "TRT01A",
+      method_id       = "METH-mean-se"
+    )
+  ),
+
+  methods = list(
+    list(
+      id         = "METH-mean-se",
+      label      = "Mean and Standard Error",
+      operations = c("mean", "standard_error")
+    )
+  )
 )
 
 
