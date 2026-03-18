@@ -4,6 +4,9 @@
 # =============================================================================
 # Purpose : Small, reusable utilities used across global.R, server.R, and the
 #           TFL scripts themselves. Keep functions focused and well-documented.
+#
+# v3 additions:
+#   ars_to_filter_code() – generate dplyr filter code from ARS analysis_sets
 # =============================================================================
 
 
@@ -176,4 +179,86 @@ km_to_df <- function(fit, strata_prefix = "") {
   })
 
   do.call(rbind, rows)
+}
+
+
+# -----------------------------------------------------------------------------
+# ars_to_filter_code()
+# Convert structured ARS analysis_sets + data_subsets to a dplyr filter code
+# string.  Used by runner.R to auto-derive filter_code when the script omits
+# it, and by the Filter Code tab to display the ARS-derived recipe.
+# -----------------------------------------------------------------------------
+#' Generate dplyr filter code from ARS analysis_sets and data_subsets
+#'
+#' @param dataset_name   Character. The primary dataset name (e.g. "adsl").
+#' @param analysis_sets  List of analysis set definitions from tfl_metadata.
+#' @param data_subsets   List of data subset definitions from tfl_metadata.
+#'
+#' @return A character string showing the equivalent dplyr pipeline.
+ars_to_filter_code <- function(dataset_name,
+                                analysis_sets = NULL,
+                                data_subsets  = NULL) {
+
+  comparator_to_r <- function(cmp) {
+    switch(cmp,
+      EQ    = "==",
+      NE    = "!=",
+      IN    = "%in%",
+      NOTIN = "%in%",   # caller wraps in ! for NOTIN
+      "=="
+    )
+  }
+
+  conditions <- character(0)
+
+  # Analysis sets → population filter conditions
+  if (!is.null(analysis_sets) && length(analysis_sets) > 0) {
+    for (as_item in analysis_sets) {
+      cmp <- comparator_to_r(as_item$comparator %||% "EQ")
+      val <- as_item$value
+      neg <- identical(as_item$comparator, "NOTIN")
+
+      if (length(val) == 1L) {
+        expr <- sprintf('%s %s "%s"', as_item$variable, cmp, val)
+      } else {
+        quoted <- paste0('"', val, '"', collapse = ", ")
+        expr   <- sprintf('%s %s c(%s)', as_item$variable, cmp, quoted)
+      }
+      if (neg) expr <- paste0("!", expr)
+      conditions <- c(conditions, expr)
+    }
+  }
+
+  # Data subsets → record-level filter conditions
+  if (!is.null(data_subsets) && length(data_subsets) > 0) {
+    for (ds_item in data_subsets) {
+      cmp <- comparator_to_r(ds_item$comparator %||% "EQ")
+      val <- ds_item$value
+      neg <- identical(ds_item$comparator, "NOTIN")
+
+      if (length(val) == 1L) {
+        # Numeric check: don't quote numbers
+        if (suppressWarnings(!is.na(as.numeric(val)))) {
+          expr <- sprintf('%s %s %s', ds_item$variable, cmp, val)
+        } else {
+          expr <- sprintf('%s %s "%s"', ds_item$variable, cmp, val)
+        }
+      } else {
+        quoted <- paste0('"', val, '"', collapse = ", ")
+        expr   <- sprintf('%s %s c(%s)', ds_item$variable, cmp, quoted)
+      }
+      if (neg) expr <- paste0("!", expr)
+      conditions <- c(conditions, expr)
+    }
+  }
+
+  if (length(conditions) == 0L) {
+    return(sprintf("# No ARS-defined filters\n%s", dataset_name))
+  }
+
+  cond_lines <- paste0("    ", conditions, collapse = ",\n")
+  sprintf(
+    "# ARS-derived filter code\nanalysis_data <- %s |>\n  filter(\n%s\n  )",
+    dataset_name, cond_lines
+  )
 }

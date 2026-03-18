@@ -21,7 +21,60 @@ tfl_metadata <- list(
   name        = "Figure 14.2.1 \u2013 KM: Time to First Adverse Event",
   type        = "Figure",
   datasets    = c("adtte"),
-  description = "Kaplan-Meier curves for time to first AE by treatment arm with 95% CI (Safety population, PARAMCD = TTFAE)."
+  description = "Kaplan-Meier curves for time to first AE by treatment arm with 95% CI (Safety population, PARAMCD = TTFAE).",
+
+  # -- ARS extension fields (v3) -----------------------------------------------
+  display = list(
+    title     = "Figure 14.2.1",
+    subtitle  = "Kaplan-Meier Plot: Time to First Adverse Event by Treatment Arm",
+    footnotes = c(
+      "Kaplan-Meier method. Shaded area: 95% pointwise confidence interval.",
+      "+ = Censored observation. Subjects censored at last known event-free date or Day 180.",
+      "Safety population; PARAMCD = TTFAE."
+    )
+  ),
+
+  analysis_sets = list(
+    list(
+      id         = "AS-SAF",
+      label      = "Safety Set",
+      dataset    = "adtte",
+      variable   = "SAFFL",
+      comparator = "EQ",
+      value      = "Y"
+    )
+  ),
+
+  data_subsets = list(
+    list(
+      id         = "DS-TTFAE",
+      label      = "Time to First AE endpoint",
+      dataset    = "adtte",
+      variable   = "PARAMCD",
+      comparator = "EQ",
+      value      = "TTFAE"
+    )
+  ),
+
+  analyses = list(
+    list(
+      id              = "AN-f14_2_1-01",
+      label           = "Kaplan-Meier survival analysis: time to first AE",
+      analysis_set_id = "AS-SAF",
+      dataset         = "adtte",
+      variable        = "AVAL",
+      grouping_var    = "TRT01A",
+      method_id       = "METH-kaplan-meier"
+    )
+  ),
+
+  methods = list(
+    list(
+      id         = "METH-kaplan-meier",
+      label      = "Kaplan-Meier Survival Estimation",
+      operations = c("survival_probability", "confidence_interval_95", "median_survival")
+    )
+  )
 )
 
 
