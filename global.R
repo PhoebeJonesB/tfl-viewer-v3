@@ -15,10 +15,12 @@
 # 1. PACKAGES
 # Required packages – install any missing ones before launching the app:
 #   install.packages(c("shiny", "bslib", "DT", "dplyr", "ggplot2",
-#                       "survival", "scales", "writexl", "jsonlite", "stringr"))
+#                       "survival", "scales", "writexl", "jsonlite", "stringr",
+#                       "pharmaverseadam"))
 # -----------------------------------------------------------------------------
 
 library(shiny)
+library(pharmaverseadam)
 library(bslib)
 library(DT)
 library(dplyr)
@@ -41,14 +43,14 @@ invisible(lapply(r_files, source))
 
 
 # -----------------------------------------------------------------------------
-# 3. GENERATE SYNTHETIC ADaM DATA
-# generate_adam_data() is defined in R/data_gen.R.
+# 3. LOAD ADaM DATA FROM {pharmaverseadam}
+# load_pharmaverse_data() is defined in R/data_gen.R.
 # Replace this block with haven::read_sas() or arrow::read_parquet() calls
 # when connecting to real study data.
 # -----------------------------------------------------------------------------
 
-message("[global] Generating synthetic ADaM datasets ...")
-adam <- generate_adam_data(n_subjects = 200, seed = 4729)
+message("[global] Loading ADaM datasets from {pharmaverseadam} ...")
+adam <- load_pharmaverse_data()
 
 # Expose datasets as top-level objects (TFL scripts reference them by name)
 adsl  <- adam$adsl
@@ -110,7 +112,7 @@ dir.create(REVIEWS_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # Colour palette for treatment arms (used across app and TFL figures)
 TRT_COLOURS <- c(
-  "Placebo"      = "#4E79A7",
-  "Active 10mg"  = "#F28E2B",
-  "Active 20mg"  = "#59A14F"
+  "Placebo"              = "#4E79A7",
+  "Xanomeline Low Dose"  = "#F28E2B",
+  "Xanomeline High Dose" = "#59A14F"
 )

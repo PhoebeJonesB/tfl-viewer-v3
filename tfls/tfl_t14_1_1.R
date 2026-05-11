@@ -2,11 +2,11 @@
 # tfl_t14_1_1.R
 # Table 14.1.1 – Subject Disposition
 # =============================================================================
-# Study:       STUDY001
+# Study:       CDISCPILOT01 (pharmaverseadam)
 # TFL ID:      t14_1_1
 # Type:        Table
 # Datasets:    adsl
-# Description: Counts and percentages of subjects by disposition reason and
+# Description: Counts and percentages of subjects by disposition status and
 #              treatment group. ITT population.
 # Author:      TFL Viewer Demo
 # Date:        2026-03-13
@@ -20,7 +20,7 @@ tfl_metadata <- list(
   name        = "Table 14.1.1 \u2013 Subject Disposition",
   type        = "Table",
   datasets    = c("adsl"),
-  description = "Number and percentage of subjects by disposition reason and treatment arm (ITT population).",
+  description = "Number and percentage of subjects by disposition status and treatment arm (ITT population).",
 
   # -- ARS extension fields (v3) -----------------------------------------------
   display = list(
@@ -48,7 +48,7 @@ tfl_metadata <- list(
   analyses = list(
     list(
       id              = "AN-t14_1_1-01",
-      label           = "Disposition reason frequency by treatment arm",
+      label           = "Disposition status frequency by treatment arm",
       analysis_set_id = "AS-ITT",
       dataset         = "adsl",
       variable        = "DCSREAS",
@@ -100,18 +100,17 @@ n_trt  <- setNames(
 n_all  <- nrow(analysis_data)
 
 # Disposition categories in a logical display order
+# (pharmaverseadam ADSL provides EOSSTT; DCSREAS is derived in data_gen.R)
 disp_cats <- c(
   "COMPLETED",
-  "ADVERSE EVENT",
-  "WITHDRAWAL BY SUBJECT",
-  "LOST TO FOLLOW-UP",
-  "PROTOCOL DEVIATION"
+  "DISCONTINUED",
+  "DEATH"
 )
 
 # Build one row per disposition category
 rows <- lapply(disp_cats, function(cat) {
   row <- data.frame(
-    `Disposition Reason` = cat,
+    `Disposition Status` = cat,
     check.names = FALSE,
     stringsAsFactors = FALSE
   )
@@ -131,7 +130,7 @@ disp_table <- do.call(rbind, rows)
 
 # Header row showing N per arm
 hdr <- data.frame(
-  `Disposition Reason` = "Subjects Randomised, n",
+  `Disposition Status` = "Subjects Randomised, n",
   check.names = FALSE,
   stringsAsFactors = FALSE
 )

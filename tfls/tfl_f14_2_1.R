@@ -1,14 +1,14 @@
 # =============================================================================
 # tfl_f14_2_1.R
-# Figure 14.2.1 – Kaplan-Meier Plot: Time to First Adverse Event
+# Figure 14.2.1 – Kaplan-Meier Plot: Overall Survival
 # =============================================================================
-# Study:       STUDY001
+# Study:       CDISCPILOT01 (pharmaverseadam)
 # TFL ID:      f14_2_1
 # Type:        Figure
 # Datasets:    adtte
-# Description: Kaplan-Meier survival curves for time to first adverse event
-#              (TTFAE) by treatment arm, with 95% confidence bands. Safety
-#              population.  Censored observations shown as tick marks.
+# Description: Kaplan-Meier survival curves for overall survival (OS) by
+#              treatment arm, with 95% confidence bands. Safety population.
+#              Censored observations shown as tick marks.
 # Author:      TFL Viewer Demo
 # Date:        2026-03-13
 # =============================================================================
@@ -18,19 +18,19 @@
 
 tfl_metadata <- list(
   id          = "f14_2_1",
-  name        = "Figure 14.2.1 \u2013 KM: Time to First Adverse Event",
+  name        = "Figure 14.2.1 \u2013 KM: Overall Survival",
   type        = "Figure",
   datasets    = c("adtte"),
-  description = "Kaplan-Meier curves for time to first AE by treatment arm with 95% CI (Safety population, PARAMCD = TTFAE).",
+  description = "Kaplan-Meier curves for overall survival by treatment arm with 95% CI (Safety population, PARAMCD = OS).",
 
   # -- ARS extension fields (v3) -----------------------------------------------
   display = list(
     title     = "Figure 14.2.1",
-    subtitle  = "Kaplan-Meier Plot: Time to First Adverse Event by Treatment Arm",
+    subtitle  = "Kaplan-Meier Plot: Overall Survival by Treatment Arm",
     footnotes = c(
       "Kaplan-Meier method. Shaded area: 95% pointwise confidence interval.",
-      "+ = Censored observation. Subjects censored at last known event-free date or Day 180.",
-      "Safety population; PARAMCD = TTFAE."
+      "+ = Censored observation.",
+      "Safety population; PARAMCD = OS."
     )
   ),
 
@@ -47,19 +47,19 @@ tfl_metadata <- list(
 
   data_subsets = list(
     list(
-      id         = "DS-TTFAE",
-      label      = "Time to First AE endpoint",
+      id         = "DS-OS",
+      label      = "Overall Survival endpoint",
       dataset    = "adtte",
       variable   = "PARAMCD",
       comparator = "EQ",
-      value      = "TTFAE"
+      value      = "OS"
     )
   ),
 
   analyses = list(
     list(
       id              = "AN-f14_2_1-01",
-      label           = "Kaplan-Meier survival analysis: time to first AE",
+      label           = "Kaplan-Meier survival analysis: overall survival",
       analysis_set_id = "AS-SAF",
       dataset         = "adtte",
       variable        = "AVAL",
@@ -88,13 +88,13 @@ source_datasets <- list(
 # -- SECTION 3: FILTER CODE (display string) ----------------------------------
 
 filter_code <- "
-# Analysis population: Safety Set, Time to First AE endpoint
+# Analysis population: Safety Set, Overall Survival endpoint
 library(survival)
 
 analysis_data <- adtte |>
   filter(
     SAFFL   == 'Y',
-    PARAMCD == 'TTFAE'
+    PARAMCD == 'OS'
   )
 
 fit <- survfit(Surv(AVAL, 1 - CNSR) ~ TRT01A, data = analysis_data)
@@ -107,7 +107,7 @@ library(survival)
 
 analysis_data <- source_datasets$adtte[
   source_datasets$adtte$SAFFL   == "Y" &
-  source_datasets$adtte$PARAMCD == "TTFAE",
+  source_datasets$adtte$PARAMCD == "OS",
 ]
 
 
@@ -167,18 +167,17 @@ tfl_output <- ggplot2::ggplot(
     expand = ggplot2::expansion(mult = c(0.01, 0.02))
   ) +
   ggplot2::scale_x_continuous(
-    breaks = seq(0, 180, by = 30),
     expand = ggplot2::expansion(mult = c(0.01, 0.02))
   ) +
   ggplot2::labs(
-    title    = "Figure 14.2.1 \u2013 Kaplan-Meier: Time to First Adverse Event",
+    title    = "Figure 14.2.1 \u2013 Kaplan-Meier: Overall Survival",
     subtitle = "Safety Population  |  Shaded area: 95% pointwise CI  |  + = Censored",
-    x        = "Time to First Adverse Event (Days)",
-    y        = "Event-Free Probability",
+    x        = "Time (Days)",
+    y        = "Survival Probability",
     colour   = "Treatment",
     fill     = "Treatment",
     caption  = paste0(
-      "Kaplan-Meier method. Censored at last known event-free date or Day 180 (max follow-up).\n",
+      "Kaplan-Meier method.\n",
       paste(
         paste0(med_labels$strata, ": median = ", med_labels$med, " days"),
         collapse = "   |   "

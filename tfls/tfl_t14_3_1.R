@@ -2,7 +2,7 @@
 # tfl_t14_3_1.R
 # Table 14.3.1 – Adverse Events by System Organ Class and Preferred Term
 # =============================================================================
-# Study:       STUDY001
+# Study:       CDISCPILOT01 (pharmaverseadam)
 # TFL ID:      t14_3_1
 # Type:        Table
 # Datasets:    adsl, adae
