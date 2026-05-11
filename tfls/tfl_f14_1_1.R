@@ -2,7 +2,7 @@
 # tfl_f14_1_1.R
 # Figure 14.1.1 – Mean Change from Baseline in ALT by Visit and Treatment
 # =============================================================================
-# Study:       STUDY001
+# Study:       CDISCPILOT01 (pharmaverseadam)
 # TFL ID:      f14_1_1
 # Type:        Figure
 # Datasets:    adsl, adlb
